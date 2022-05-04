@@ -28,8 +28,12 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 ])
 
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+test_and_val_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+from torch.utils.data import Subset
 
+indices = np.arange(len(test_and_val_set))
+val_set = Subset(test_and_val_set, indices[:5000])
+testset = Subset(test_and_val_set, indices[5000:])
 # Model
 print('==> Building model..')
 net = EfficientNet.from_pretrained('efficientnet-b4', num_classes=10)

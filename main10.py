@@ -51,7 +51,13 @@ transform_test = transforms.Compose([
 ])
 
 trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+test_and_val_set = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+from torch.utils.data import Subset
+
+indices = np.arange(len(test_and_val_set))
+val_set = Subset(test_and_val_set, indices[:5000])
+test_set = Subset(test_and_val_set, indices[5000:])
+
 micro_batch_size = args.batch // args.batch_split
 
 
@@ -132,8 +138,44 @@ def test(testloader,namesave):
         os.mkdir('checkpoint')
     torch.save(state, namesave)
         
+def validate(testloader):
+    
+    net.eval()
+    
+    counter = 0
+    correctly_predicted_counter = 0
+    predicted_classes_list = []
+    with torch.no_grad():
 
-testloader = torch.utils.data.DataLoader(testset, batch_size=10, shuffle=False, num_workers=1)
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+
+            inputs, targets = inputs.cuda(), targets.cuda()
+
+            outputs = net(inputs)
+            _, predicted_classes = outputs.max(1)
+
+            counter += targets.size(0)
+            correctly_predicted_counter += (predicted_classes == targets).sum().item()
+    
+    
+    # predicted_classes_list = []
+
+    # with torch.no_grad():
+    #     for batch_idx, (inputs, targets) in enumerate(test_set_loader):
+    #         inputs, targets = inputs.cuda(), targets.cuda()
+    #         outputs = net(inputs)
+            # _, predicted_classes = outputs.max(1)
+            predicted_classes_list += list(map(lambda x: str(x), predicted_classes.cpu().detach().numpy().tolist()))
+
+    predicted_classes_list = list(enumerate(predicted_classes_list))
+    accuracy = float(correctly_predicted_counter) / counter
+
+    net.train()
+    
+    return accuracy, predicted_classes_list
+
+
+testloader = torch.utils.data.DataLoader(test_set, batch_size=10, shuffle=False, num_workers=1)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=micro_batch_size, shuffle=True, num_workers=1)
 
 
@@ -149,6 +191,20 @@ for i in range(args.nestim):
     for epoch in range(0, args.ne):
         train(epoch,trainloader)
         lr_sc.step()
+        current_accuracy, predicted_classes_list = validate(testloader)
+        if current_accuracy > best_accuracy:
+            print("Current Accuracy on Test: ",current_accuracy)
+            best_accuracy = current_accuracy
+            torch.save(net.state_dict(), 'resnet_20_cifar10_kaggle.pth')
+            # Saving best predictions so far
+            submission_df = pd.DataFrame(predicted_classes_list, columns = ['Id', 'Category'])
+            submission_df = submission_df['Category']
+            submission_df = submission_df.replace(0)
+            submission_df = pd.DataFrame(submission_df)
+            submission_df['Id'] = submission_df.index
+            submission_df = submission_df[['Id', 'Category']]
+            submission_df.to_csv('cifar_10_best_submission.csv', index=False)
+
     print("Test accuracy : ")
     test(testloader,namesave)
     
